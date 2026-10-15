@@ -21,7 +21,7 @@ textarea{flex:1;border:0;outline:0;resize:none;padding:8px;background:transparen
 </style></head><body>
 <header><h1>🔌 Verilog IDE</h1>
 <button class="p" id="bc">✔ Verificar sintaxis</button><button class="p" id="bs">▶ Simular</button>
-<button id="bn">＋ Archivo nuevo</button><label>Tiempo máx <input id="tm" type="number" value="200" min="1"></label>
+<input id="nn" placeholder="nombre (opcional)" style="width:150px"><button id="bn">＋ Archivo nuevo</button><label>Tiempo máx <input id="tm" type="number" value="200" min="1"></label>
 <span style="flex:1"></span><button id="z1">Zoom −</button><button id="z2">Zoom +</button></header>
 <main>
 <div class="pane"><div>Código <select></select></div><div class="ed"><pre class="gt"></pre><textarea spellcheck="false"></textarea></div></div>
@@ -66,8 +66,8 @@ document.querySelectorAll('.pane').forEach((el,i)=>{tas[i]=el.querySelector('tex
  tas[i].oninput=()=>{files[P[i]].c=tas[i].value;gut(i);save()};
  tas[i].onscroll=()=>gts[i].scrollTop=tas[i].scrollTop;
  tas[i].onkeydown=e=>{if(e.key==='Tab'){e.preventDefault();tas[i].setRangeText('  ',tas[i].selectionStart,tas[i].selectionEnd,'end');tas[i].oninput()}}});
-$('bn').onclick=()=>{let n=prompt('Nombre del archivo (si contiene "tb" o "test" va al panel Testbench):','modulo.v');if(!n)return;n=n.replace(/[^\w.-]/g,'_');if(!/\.s?v$/.test(n))n+='.v';
- const m=n.replace(/\.\w+$/,'');files.push({n,c:`module ${m}();\n\nendmodule\n`});P[/tb|test/i.test(n)?1:0]=files.length-1;fill();save()};
+$('bn').onclick=()=>{let n=$('nn').value.trim()||'modulo';n=n.replace(/[^\w.-]/g,'_');if(!/\.s?v$/.test(n))n+='.v';{const b=n.replace(/\.s?v$/,'');let k=1;while(files.some(f=>f.n===n))n=b+'_'+(++k)+'.v'}
+ let m=n.replace(/\.\w+$/,'').replace(/\W/g,'_');if(/^\d/.test(m))m='m_'+m;$('nn').value='';files.push({n,c:`module ${m}();\n\nendmodule\n`});P[/tb|test/i.test(n)?1:0]=files.length-1;fill();save()};
 // ---------- Parser
 const mods={};let R;
 const PR={and:'&',or:'|',xor:'^',nand:'&~',nor:'|~',xnor:'^~',not:'~',buf:'+'};
@@ -125,10 +125,11 @@ function parse(src,file){const T=lex(src.replace(/^[ \t]*`.*$/gm,'')),BIN=[['||'
     if(acc('#')){ex('(');let d=1;while(d&&T[p]){if(is('('))d++;if(is(')'))d--;p++}}
     const name=id();ex('(');const conn=[];while(!is(')')){if(!T[p])err("falta ')'");if(acc('.')){const pn=id();ex('(');const e=is(')')?null:E();ex(')');conn.push({p:pn,e})}else conn.push({e:E()});acc(',')}p++;ex(';');m.items.push({t:'inst',mod,name,conn,l:t.l})}
    else err(`construcción inválida o no soportada: '${t.v}'`,t)}}}
+const sel=()=>[...new Set(P)].map(i=>files[i]);
 function parseAll(){for(const k in mods)delete mods[k];const er=[];
- files.forEach(f=>{try{parse(f.c,f.n)}catch(e){if(e.msg)er.push(`${f.n}:${e.line}: error: ${e.msg}`);else throw e}});
+ sel().forEach(f=>{try{parse(f.c,f.n)}catch(e){if(e.msg)er.push(`${f.n}:${e.line}: error: ${e.msg}`);else throw e}});
  if(!er.length)for(const m of Object.values(mods)){m.refs.forEach(t=>{if(!m.dn.has(t.v))er.push(`${m.file}:${t.l}: error: '${t.v}' no está declarado en el módulo ${m.name}`)});
-  m.items.filter(i=>i.t==='inst').forEach(i=>{const c=mods[i.mod];if(!c)er.push(`${m.file}:${i.l}: error: módulo '${i.mod}' no definido`);else i.conn.forEach(x=>{if(x.p&&!c.dn.has(x.p))er.push(`${m.file}:${i.l}: error: el puerto '${x.p}' no existe en ${i.mod}`)})})}
+  m.items.filter(i=>i.t==='inst').forEach(i=>{const c=mods[i.mod];if(!c)er.push(`${m.file}:${i.l}: error: módulo '${i.mod}' no definido (¿está su archivo seleccionado en Código o Testbench?)`);else i.conn.forEach(x=>{if(x.p&&!c.dn.has(x.p))er.push(`${m.file}:${i.l}: error: el puerto '${x.p}' no existe en ${i.mod}`)})})}
  return[...new Set(er)]}
 // ---------- Simulador
 let S_={},asg,cmb,pr,nba,T,fin,steps,dirty,out,mon;
@@ -189,8 +190,8 @@ function elab(mn,pre,depth=0){if(depth>16)throw{msg:'instanciación recursiva'};
     if(d.dir==='input')asg.push({l:{t:'i',n:pn},lp:cp,r:c.e,rp:pre});else asg.push({l:c.e,lp:pre,r:{t:'i',n:pn},rp:cp})})}}}
 function simulate(maxT){S_={};asg=[];cmb=[];pr=[];nba=[];T=0;fin=0;steps=0;out=[];mon=null;
  const inst=new Set();Object.values(mods).forEach(m=>m.items.forEach(i=>i.t==='inst'&&inst.add(i.mod)));
- const c=Object.keys(mods).filter(n=>!inst.has(n)),top=c.find(n=>/tb|test/i.test(n))||c[0];if(!top)throw{msg:'no hay módulos'};
- elab(top,'');out.push(`<span>Módulo top: ${top}</span>`);
+ const c=Object.keys(mods).filter(n=>!inst.has(n)),top=c.find(n=>mods[n].file===files[P[1]].n)||c.find(n=>/tb|test/i.test(n))||c[0];if(!top)throw{msg:'no hay módulos'};
+ elab(top,'');out.push(`<span>Módulo top: ${top} (archivos: ${sel().map(f=>f.n).join(', ')})</span>`);
  const settle=()=>{for(let k=0;k<200;k++){dirty=false;for(const a of asg)wr(a.l,ev(a.r,a.rp)[0],a.lp);for(const q of cmb)for(const _ of run(q.s,q.p));if(!dirty)return}};
  const hit=w=>w.some(c=>{const v=ev(c.x,c.p)[0];return c.e==='any'?v!==c.l:c.e==='pos'?(c.l&1n)===0n&&(v&1n)===1n:(c.l&1n)===1n&&(v&1n)===0n});
  const adv=P=>{const r=P.g.next();if(r.done){P.done=1;P.t=null;return}const y=r.value;
@@ -220,7 +221,7 @@ function draw(){if(!HS)return;const{hist,end}=HS,names=Object.keys(hist),cv=$('w
     const tx=v.toString(16).toUpperCase();if(x1-x0>tx.length*8+14){x.fillStyle=C('--fg');x.fillText(tx,(x0+x1)/2-tx.length*3.5,m)}}}})}
 // ---------- Acciones
 const log=(h)=>$('con').innerHTML=h;
-$('bc').onclick=()=>{const er=parseAll();log(er.length?er.map(e=>`<span class="e">${esc(e)}</span>`).join('\n')+`\n<span class="e">✘ ${er.length} error(es)</span>`:`<span class="o">✔ Sintaxis correcta (${Object.keys(mods).length} módulo(s): ${Object.keys(mods).join(', ')})</span>`)};
+$('bc').onclick=()=>{const er=parseAll();log(er.length?er.map(e=>`<span class="e">${esc(e)}</span>`).join('\n')+`\n<span class="e">✘ ${er.length} error(es)</span>`:`<span class="o">✔ Sintaxis correcta en ${sel().map(f=>f.n).join(', ')} (${Object.keys(mods).length} módulo(s): ${Object.keys(mods).join(', ')})</span>`)};
 $('bs').onclick=()=>{const er=parseAll();if(er.length){log(er.map(e=>`<span class="e">${esc(e)}</span>`).join('\n')+'\n<span class="e">✘ Corrige los errores antes de simular</span>');return}
  try{HS=simulate(+$('tm').value||200);S_=S_;draw();log(out.join('\n')+`\n<span class="o">✔ Simulación terminada en t=${HS.end}${HS.fin?' ($finish)':''}</span>`)}
  catch(e){if(!e.msg)throw e;log(out.join('\n')+`\n<span class="e">✘ Error de simulación: ${esc(e.msg)}</span>`)}};
