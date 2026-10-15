@@ -1,0 +1,229 @@
+<!DOCTYPE html>
+<html lang="es"><head><meta charset="utf-8"><title>Verilog IDE</title>
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<style>
+:root{--bg:#f4f5f7;--fg:#1d2433;--pn:#fff;--bd:#d5d9e0;--ac:#2563eb;--ok:#15803d;--er:#b91c1c;--bus:#7c3aed;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+@media(prefers-color-scheme:dark){:root{--bg:#12151c;--fg:#e4e8f0;--pn:#1b2030;--bd:#333a4d;--ac:#60a5fa;--ok:#4ade80;--er:#f87171;--bus:#c4b5fd}}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--fg);font:14px system-ui,sans-serif;display:flex;flex-direction:column;min-height:100vh}
+header{display:flex;flex-wrap:wrap;gap:8px;align-items:center;padding:8px 12px;background:var(--pn);border-bottom:1px solid var(--bd)}
+h1{font-size:16px;margin:0 8px 0 0}button,select,input{font:inherit;color:var(--fg);background:var(--pn);border:1px solid var(--bd);border-radius:6px;padding:5px 10px}
+button{cursor:pointer}button.p{background:var(--ac);color:#fff;border-color:var(--ac)}input{width:70px}
+main{flex:1;display:grid;grid-template-columns:1fr 1fr;gap:8px;padding:8px}
+.pane,.box{background:var(--pn);border:1px solid var(--bd);border-radius:8px;display:flex;flex-direction:column;min-width:0}
+.pane{height:300px}.pane>div:first-child,.box>div:first-child{padding:6px 8px;border-bottom:1px solid var(--bd);display:flex;gap:8px;align-items:center;font-weight:600}
+.ed{flex:1;display:flex;min-height:0;font:13px/1.5 ui-monospace,Consolas,monospace}
+.gt{margin:0;padding:8px 6px;overflow:hidden;color:#8a93a6;text-align:right;user-select:none;border-right:1px solid var(--bd)}
+textarea{flex:1;border:0;outline:0;resize:none;padding:8px;background:transparent;color:var(--fg);font:inherit;white-space:pre;overflow:auto;tab-size:2}
+.wide{grid-column:1/3}#wrap{overflow-x:auto;padding:4px}
+#con{height:130px;overflow:auto;margin:0;padding:8px;font:12px/1.5 ui-monospace,Consolas,monospace;white-space:pre-wrap}
+.e{color:var(--er)}.o{color:var(--ok)}
+@media(max-width:800px){main{grid-template-columns:1fr}.wide{grid-column:1}}
+</style></head><body>
+<header><h1>🔌 Verilog IDE</h1>
+<button class="p" id="bc">✔ Verificar sintaxis</button><button class="p" id="bs">▶ Simular</button>
+<button id="bn">＋ Archivo nuevo</button><label>Tiempo máx <input id="tm" type="number" value="200" min="1"></label>
+<span style="flex:1"></span><button id="z1">Zoom −</button><button id="z2">Zoom +</button></header>
+<main>
+<div class="pane"><div>Código <select></select></div><div class="ed"><pre class="gt"></pre><textarea spellcheck="false"></textarea></div></div>
+<div class="pane"><div>Testbench <select></select></div><div class="ed"><pre class="gt"></pre><textarea spellcheck="false"></textarea></div></div>
+<div class="box wide"><div>Diagrama temporal</div><div id="wrap" style="display:block;padding:4px"><canvas id="wv" height="60"></canvas></div></div>
+<div class="box wide"><div>Consola</div><pre id="con"></pre></div>
+</main>
+<script>
+const $=id=>document.getElementById(id);
+const AND=`module and_gate(
+  input  a,
+  input  b,
+  output y
+);
+  assign y = a & b;
+endmodule
+`,TB=`\`timescale 1ns/1ps
+module tb_and_gate;
+  reg a, b;
+  wire y;
+  and_gate dut(.a(a), .b(b), .y(y));
+  initial begin
+    a=0; b=0; #10;
+    a=0; b=1; #10;
+    a=1; b=0; #10;
+    a=1; b=1; #10;
+    $display("Fin de la simulacion, y=%b", y);
+    $finish;
+  end
+endmodule
+`;
+let files=[{n:'and_gate.v',c:AND},{n:'tb_and_gate.v',c:TB}];
+try{const s=JSON.parse(localStorage.getItem('vlog'));if(s&&s.length)files=s}catch(e){}
+const save=()=>{try{localStorage.setItem('vlog',JSON.stringify(files))}catch(e){}};
+// ---------- UI editores
+const P=[0,Math.min(1,files.length-1)],tas=[],sels=[],gts=[];
+const gut=i=>gts[i].textContent=tas[i].value.split('\n').map((_,k)=>k+1).join('\n');
+const show=i=>{tas[i].value=files[P[i]].c;gut(i)};
+function fill(){sels.forEach((s,i)=>{s.innerHTML=files.map((f,k)=>`<option value="${k}">${f.n}</option>`).join('');s.value=P[i];show(i)})}
+document.querySelectorAll('.pane').forEach((el,i)=>{tas[i]=el.querySelector('textarea');sels[i]=el.querySelector('select');gts[i]=el.querySelector('.gt');
+ sels[i].onchange=()=>{P[i]=+sels[i].value;show(i)};
+ tas[i].oninput=()=>{files[P[i]].c=tas[i].value;gut(i);save()};
+ tas[i].onscroll=()=>gts[i].scrollTop=tas[i].scrollTop;
+ tas[i].onkeydown=e=>{if(e.key==='Tab'){e.preventDefault();tas[i].setRangeText('  ',tas[i].selectionStart,tas[i].selectionEnd,'end');tas[i].oninput()}}});
+$('bn').onclick=()=>{let n=prompt('Nombre del archivo (si contiene "tb" o "test" va al panel Testbench):','modulo.v');if(!n)return;n=n.replace(/[^\w.-]/g,'_');if(!/\.s?v$/.test(n))n+='.v';
+ const m=n.replace(/\.\w+$/,'');files.push({n,c:`module ${m}();\n\nendmodule\n`});P[/tb|test/i.test(n)?1:0]=files.length-1;fill();save()};
+// ---------- Parser
+const mods={};let R;
+const PR={and:'&',or:'|',xor:'^',nand:'&~',nor:'|~',xnor:'^~',not:'~',buf:'+'};
+function lex(src){const t=[],re=/\s+|\/\/[^\n]*|\/\*[\s\S]*?\*\/|(\d*'[sS]?[bBoOdDhH][0-9a-fA-F_xXzZ?]+|\d[\d_]*)|([A-Za-z_$][\w$]*)|("(?:[^"\\]|\\.)*")|(===|!==|<<<|>>>|~\^|\^~|~&|~\||==|!=|<=|>=|&&|\|\||<<|>>|[\s\S])/y;let i=0,l=1,m;
+ while(i<src.length&&(re.lastIndex=i,m=re.exec(src))){i=re.lastIndex;const s=m[0];if(m[1])t.push({k:'n',v:s,l});else if(m[2])t.push({k:'i',v:s,l});else if(m[3])t.push({k:'s',v:s,l});else if(m[4])t.push({k:'o',v:s,l});l+=(s.match(/\n/g)||[]).length}return t}
+function num(s){const m=s.match(/^(\d*)'[sS]?([bBoOdDhH])(.+)$/);if(!m)return[BigInt(s.replace(/_/g,'')),32];
+ const b=BigInt({b:2,o:8,d:10,h:16}[m[2].toLowerCase()]);let v=0n;for(const c of m[3].replace(/_/g,'').replace(/[xXzZ?]/g,'0'))v=v*b+BigInt(parseInt(c,16));return[v,m[1]?+m[1]:32]}
+function parse(src,file){const T=lex(src.replace(/^[ \t]*`.*$/gm,'')),BIN=[['||'],['&&'],['|'],['^','~^','^~'],['&'],['==','!=','===','!=='],['<','<=','>','>='],['<<','>>','<<<','>>>'],['+','-'],['*','/','%']];let p=0;
+ const err=(m,t=T[p]||T[T.length-1])=>{throw{line:t?t.l:1,msg:m}};
+ const is=v=>T[p]&&T[p].v===v&&T[p].k!=='s',acc=v=>is(v)?(p++,1):0;
+ const ex=v=>{if(!acc(v))err(`se esperaba '${v}'`+(T[p]?`, pero se encontró '${T[p].v}'`:' (fin de archivo)'),T[p]||T[T.length-1])};
+ const id=()=>{const t=T[p++];if(!t||t.k!=='i')err('se esperaba un identificador',t);return t.v};
+ const E=()=>{const c=B(0);if(acc('?')){const a=E();ex(':');return{t:'?',c,a,b:E()}}return c};
+ const B=n=>{if(n>=BIN.length)return U();let a=B(n+1);while(T[p]&&T[p].k==='o'&&BIN[n].includes(T[p].v)){const o=T[p++].v;a={t:'b',o,a,b:B(n+1)}}return a};
+ const U=()=>{const t=T[p];if(!t)err('expresión incompleta');if(t.k==='o'&&['!','~','-','+','&','|','^','~&','~|','~^'].includes(t.v)){p++;return{t:'u',o:t.v,a:U()}}return Pr()};
+ const Pr=()=>{const t=T[p++];if(!t)err('expresión incompleta',T[p-2]);
+  if(t.k==='n')return{t:'n',v:num(t.v)};if(t.k==='s')return{t:'s',v:t.v.slice(1,-1)};
+  if(t.v==='('){const e=E();ex(')');return e}
+  if(t.v==='{'){const a=E();if(acc('{')){const x=E();ex('}');ex('}');return{t:'r',n:a,a:x}}const l=[a];while(acc(','))l.push(E());ex('}');return{t:'c',l}}
+  if(t.k==='i'){if(t.v[0]==='$'){const a=[];if(acc('(')){if(!is(')'))do a.push(E());while(acc(','));ex(')')}return{t:'f',n:t.v,a}}
+   R.push(t);let e={t:'i',n:t.v};while(acc('[')){const h=E();if(acc(':')){const l=E();ex(']');e={t:'p',e,h,l}}else{ex(']');e={t:'x',e,i:h}}}return e}
+  err(`símbolo inesperado '${t.v}'`,t)};
+ const SA=()=>{const l=Pr();const nb=is('<=');if(!(acc('=')||acc('<=')))err("se esperaba '=' o '<='");return{t:'as',l,r:E(),nb}};
+ const EV=()=>{if(acc('*'))return[{e:'*'}];ex('(');if(acc('*')){ex(')');return[{e:'*'}]}const l=[];do{let e='any';if(acc('posedge'))e='pos';else if(acc('negedge'))e='neg';l.push({e,x:E()})}while(acc('or')||acc(','));ex(')');return l};
+ const S=()=>{const t=T[p];if(!t)err('sentencia incompleta',T[p-1]);if(acc(';'))return{t:'nop'};
+  if(acc('begin')){if(acc(':'))id();const l=[];while(!is('end')){if(!T[p])err("falta 'end'",t);l.push(S())}p++;return{t:'blk',l}}
+  if(acc('if')){ex('(');const c=E();ex(')');const a=S();return{t:'if',c,a,b:acc('else')?S():null}}
+  if(is('case')||is('casez')||is('casex')){p++;ex('(');const e=E();ex(')');const it=[];let d=null;while(!acc('endcase')){if(!T[p])err("falta 'endcase'",t);if(acc('default')){acc(':');d=S()}else{const m=[E()];while(acc(','))m.push(E());ex(':');it.push({m,s:S()})}}return{t:'case',e,it,d}}
+  if(acc('for')){ex('(');const i=S(),c=E();ex(';');const s=SA();ex(')');return{t:'for',i,c,s,b:S()}}
+  if(acc('while')){ex('(');const c=E();ex(')');return{t:'while',c,b:S()}}
+  if(acc('repeat')){ex('(');const n=E();ex(')');return{t:'rep',n,b:S()}}
+  if(acc('forever'))return{t:'while',c:{t:'n',v:[1n,1]},b:S()};
+  if(acc('#')){const d=Pr();return{t:'dl',d,b:S()}}
+  if(acc('@')){const ev=EV();return{t:'ev',ev,b:S()}}
+  if(t.k==='i'&&t.v[0]==='$'){const e=Pr();ex(';');return{t:'x',e}}
+  if(t.k!=='i')err(`símbolo inesperado '${t.v}'`,t);const a=SA();ex(';');return a};
+ const RG=()=>{if(acc('[')){const h=E();ex(':');const l=E();ex(']');return[h,l]}return null};
+ while(p<T.length){const mt=T[p];ex('module');const m={name:id(),pl:[],dn:new Set(),items:[],file,line:mt.l};R=m.refs=[];
+  if(mods[m.name])err(`módulo '${m.name}' duplicado`,mt);mods[m.name]=m;
+  const DL=(dir,reg,rng,k)=>{do{const n=id();m.dn.add(n);const init=acc('=')?E():null;m.items.push({t:'d',dir,reg,rng,n,init,k})}while(acc(','))};
+  if(acc('(')){let dir=null,reg=0,rng=null;while(!is(')')){if(!T[p])err("falta ')'");
+    if(is('input')||is('output')||is('inout')){dir=T[p++].v;reg=acc('reg');if(!reg)acc('wire');acc('signed');rng=RG()}
+    const n=id();m.pl.push(n);m.dn.add(n);if(dir)m.items.push({t:'d',dir,reg,rng,n});acc(',')}p++}
+  ex(';');
+  while(!acc('endmodule')){const t=T[p];if(!t)err("falta 'endmodule'",mt);
+   if(is('input')||is('output')||is('inout')){const dir=T[p++].v;const reg=acc('reg');if(!reg)acc('wire');acc('signed');DL(dir,reg,RG());ex(';')}
+   else if(is('wire')||is('reg')||is('integer')||is('genvar')){const k=T[p++].v;const r=k!=='wire';acc('signed');DL(null,r,RG(),k==='integer'?'int':0);ex(';')}
+   else if(is('parameter')||is('localparam')){p++;RG();DL(null,0,null,'pm');ex(';')}
+   else if(acc('assign')){const l=Pr();ex('=');const r=E();ex(';');m.items.push({t:'as',l,r})}
+   else if(acc('initial'))m.items.push({t:'init',s:S()});
+   else if(acc('always')){let ev=null;if(acc('@'))ev=EV();m.items.push({t:'al',ev,s:S()})}
+   else if(t.k==='i'&&PR[t.v]){p++;if(T[p]&&T[p].k==='i')p++;ex('(');const a=[E()];while(acc(','))a.push(E());ex(')');ex(';');const op=PR[t.v];let r=a[1];
+    if(op==='~')r={t:'u',o:'~',a:r};else{for(let k=2;k<a.length;k++)r={t:'b',o:op[0],a:r,b:a[k]};if(op.length>1)r={t:'u',o:'~',a:r}}m.items.push({t:'as',l:a[0],r})}
+   else if(t.k==='i'&&T[p+1]&&(T[p+1].k==='i'||T[p+1].v==='#')&&!/^(function|task|generate|always_ff|always_comb)$/.test(t.v)){const mod=T[p++].v;
+    if(acc('#')){ex('(');let d=1;while(d&&T[p]){if(is('('))d++;if(is(')'))d--;p++}}
+    const name=id();ex('(');const conn=[];while(!is(')')){if(!T[p])err("falta ')'");if(acc('.')){const pn=id();ex('(');const e=is(')')?null:E();ex(')');conn.push({p:pn,e})}else conn.push({e:E()});acc(',')}p++;ex(';');m.items.push({t:'inst',mod,name,conn,l:t.l})}
+   else err(`construcción inválida o no soportada: '${t.v}'`,t)}}}
+function parseAll(){for(const k in mods)delete mods[k];const er=[];
+ files.forEach(f=>{try{parse(f.c,f.n)}catch(e){if(e.msg)er.push(`${f.n}:${e.line}: error: ${e.msg}`);else throw e}});
+ if(!er.length)for(const m of Object.values(mods)){m.refs.forEach(t=>{if(!m.dn.has(t.v))er.push(`${m.file}:${t.l}: error: '${t.v}' no está declarado en el módulo ${m.name}`)});
+  m.items.filter(i=>i.t==='inst').forEach(i=>{const c=mods[i.mod];if(!c)er.push(`${m.file}:${i.l}: error: módulo '${i.mod}' no definido`);else i.conn.forEach(x=>{if(x.p&&!c.dn.has(x.p))er.push(`${m.file}:${i.l}: error: el puerto '${x.p}' no existe en ${i.mod}`)})})}
+ return[...new Set(er)]}
+// ---------- Simulador
+let S_={},asg,cmb,pr,nba,T,fin,steps,dirty,out,mon;
+const mk=(v,w)=>v&((1n<<BigInt(w))-1n);
+function ev(e,p){switch(e.t){
+ case'n':return[mk(e.v[0],e.v[1]),e.v[1]];
+ case'i':{const s=S_[p+e.n];if(!s)throw{msg:`'${e.n}' no existe`};return[s.v,s.w]}
+ case'u':{const[v,w]=ev(e.a,p);if(e.o==='!')return[v?0n:1n,1];if(e.o==='~')return[mk(~v,w),w];if(e.o==='-')return[mk(-v,w),w];if(e.o==='+')return[v,w];
+  const ones=v.toString(2).split('1').length-1,all=v===mk(-1n,w);return[{'&':all,'|':v!==0n,'^':ones%2==1,'~&':!all,'~|':v===0n,'~^':ones%2==0}[e.o]?1n:0n,1]}
+ case'b':{const[a,x]=ev(e.a,p),[b,y]=ev(e.b,p),w=Math.max(x,y),B1=c=>[c?1n:0n,1];let r;switch(e.o){
+  case'+':r=a+b;break;case'-':r=a-b;break;case'*':r=a*b;break;case'/':r=b?a/b:0n;break;case'%':r=b?a%b:0n;break;
+  case'&':r=a&b;break;case'|':r=a|b;break;case'^':r=a^b;break;case'~^':case'^~':return[mk(~(a^b),w),w];
+  case'<<':case'<<<':return[mk(a<<b,x),x];case'>>':case'>>>':return[a>>b,x];
+  case'&&':return B1(a&&b);case'||':return B1(a||b);case'==':case'===':return B1(a==b);case'!=':case'!==':return B1(a!=b);
+  case'<':return B1(a<b);case'<=':return B1(a<=b);case'>':return B1(a>b);case'>=':return B1(a>=b)}
+  return[r<0n?mk(r,w):r,w]}
+ case'?':return ev(e.c,p)[0]?ev(e.a,p):ev(e.b,p);
+ case'c':{let v=0n,w=0;for(const x of e.l){const[a,b]=ev(x,p);v=(v<<BigInt(b))|a;w+=b}return[v,w]}
+ case'r':{const n=Number(ev(e.n,p)[0]),[a,b]=ev(e.a,p);let v=0n;for(let i=0;i<n;i++)v=(v<<BigInt(b))|a;return[v,n*b]}
+ case'x':return[(ev(e.e,p)[0]>>ev(e.i,p)[0])&1n,1];
+ case'p':{const l=ev(e.l,p)[0],w=Number(ev(e.h,p)[0]-l)+1;return[mk(ev(e.e,p)[0]>>l,w),w]}
+ case'f':return e.n==='$time'?[BigInt(T),64]:e.n==='$random'?[BigInt(Math.random()*2**32|0),32]:[0n,1];
+ default:return[0n,0]}}
+function wr(l,val,p){if(l.t==='c'){for(let i=l.l.length-1;i>=0;i--){const w=ev(l.l[i],p)[1];wr(l.l[i],mk(val,w),p);val>>=BigInt(w)}return}
+ const b=l.t==='i'?l:l.e,s=S_[p+b.n];if(!s)throw{msg:`'${b.n}' no existe`};let lo=0n,w=s.w;
+ if(l.t==='x'){lo=ev(l.i,p)[0];w=1}else if(l.t==='p'){lo=ev(l.l,p)[0];w=Number(ev(l.h,p)[0]-lo)+1}
+ const m=((1n<<BigInt(w))-1n)<<lo,o=s.v;s.v=(s.v&~m)|((val<<lo)&m);if(o!==s.v)dirty=true}
+const tick=()=>{if(++steps>3e6)throw{msg:'bucle infinito o simulación demasiado larga (¿falta un retardo #?)'}};
+function fmt(e,p){const a=e.a.slice();let f=a[0]&&a[0].t==='s'?a.shift().v:a.map(()=>'%d').join(' ');
+ return f.replace(/\\n/g,'').replace(/%(0?\d*)([dbhxotsc%])/gi,(m,z,c)=>{if(c==='%')return'%';const x=a.shift();if(!x)return'';if(x.t==='s')return x.v;const[v,w]=ev(x,p);c=c.toLowerCase();
+  return c==='b'?v.toString(2).padStart(w,'0'):c==='h'||c==='x'?v.toString(16).padStart(Math.ceil(w/4),'0'):v.toString()})}
+function sys(e,p){const n=e.n;if(n==='$finish'||n==='$stop')fin=1;else if(/^\$(display|write|strobe)$/.test(n))out.push(`<span>[${T}] ${esc(fmt(e,p))}</span>`);else if(n==='$monitor')mon={e,p,last:null}}
+const esc=s=>s.replace(/[&<]/g,c=>({'&':'&amp;','<':'&lt;'}[c]));
+function*run(s,p){switch(s.t){
+ case'blk':for(const x of s.l)yield*run(x,p);break;
+ case'as':{const v=ev(s.r,p)[0];if(s.nb)nba.push([s.l,v,p]);else wr(s.l,v,p);break}
+ case'if':if(ev(s.c,p)[0])yield*run(s.a,p);else if(s.b)yield*run(s.b,p);break;
+ case'case':{const v=ev(s.e,p)[0];for(const it of s.it)if(it.m.some(m=>ev(m,p)[0]===v)){yield*run(it.s,p);return}if(s.d)yield*run(s.d,p);break}
+ case'for':yield*run(s.i,p);while(ev(s.c,p)[0]){yield*run(s.b,p);yield*run(s.s,p);tick()}break;
+ case'while':while(ev(s.c,p)[0]){yield*run(s.b,p);tick()}break;
+ case'rep':{let n=ev(s.n,p)[0];while(n-->0n){yield*run(s.b,p);tick()}break}
+ case'dl':yield{d:Number(ev(s.d,p)[0])};yield*run(s.b,p);break;
+ case'ev':yield{ev:s.ev,p};yield*run(s.b,p);break;
+ case'x':sys(s.e,p)}}
+function*alw(evl,s,p){for(;;){if(evl)yield{ev:evl,p};else tick();yield*run(s,p)}}
+function*ini(s,p){yield*run(s,p)}
+function elab(mn,pre,depth=0){if(depth>16)throw{msg:'instanciación recursiva'};const m=mods[mn],cv=e=>ev(e,pre)[0];
+ for(const it of m.items)switch(it.t){
+  case'd':{const k=pre+it.n,w=it.rng?Math.abs(Number(cv(it.rng[0])-cv(it.rng[1])))+1:it.k==='int'?32:1,o=S_[k];
+   if(it.k==='pm')S_[k]={w:32,v:cv(it.init),param:1};
+   else{if(o){if(it.rng||it.k==='int')o.w=w;o.reg=o.reg||it.reg}else S_[k]={w,v:0n,reg:it.reg};
+    if(it.init){if(it.reg)S_[k].v=mk(cv(it.init),w);else asg.push({l:{t:'i',n:it.n},lp:pre,r:it.init,rp:pre})}}break}
+  case'as':asg.push({l:it.l,lp:pre,r:it.r,rp:pre});break;
+  case'init':pr.push({g:ini(it.s,pre),t:0});break;
+  case'al':if(it.ev&&it.ev.every(c=>c.e==='*'||c.e==='any'))cmb.push({s:it.s,p:pre});else pr.push({g:alw(it.ev,it.s,pre),t:0});break;
+  case'inst':{const cm=mods[it.mod],cp=pre+it.name+'.';elab(it.mod,cp,depth+1);
+   it.conn.forEach((c,i)=>{if(!c.e)return;const pn=c.p||cm.pl[i],d=cm.items.find(x=>x.t==='d'&&x.n===pn&&x.dir);if(!d)return;
+    if(d.dir==='input')asg.push({l:{t:'i',n:pn},lp:cp,r:c.e,rp:pre});else asg.push({l:c.e,lp:pre,r:{t:'i',n:pn},rp:cp})})}}}
+function simulate(maxT){S_={};asg=[];cmb=[];pr=[];nba=[];T=0;fin=0;steps=0;out=[];mon=null;
+ const inst=new Set();Object.values(mods).forEach(m=>m.items.forEach(i=>i.t==='inst'&&inst.add(i.mod)));
+ const c=Object.keys(mods).filter(n=>!inst.has(n)),top=c.find(n=>/tb|test/i.test(n))||c[0];if(!top)throw{msg:'no hay módulos'};
+ elab(top,'');out.push(`<span>Módulo top: ${top}</span>`);
+ const settle=()=>{for(let k=0;k<200;k++){dirty=false;for(const a of asg)wr(a.l,ev(a.r,a.rp)[0],a.lp);for(const q of cmb)for(const _ of run(q.s,q.p));if(!dirty)return}};
+ const hit=w=>w.some(c=>{const v=ev(c.x,c.p)[0];return c.e==='any'?v!==c.l:c.e==='pos'?(c.l&1n)===0n&&(v&1n)===1n:(c.l&1n)===1n&&(v&1n)===0n});
+ const adv=P=>{const r=P.g.next();if(r.done){P.done=1;P.t=null;return}const y=r.value;
+  if(y.d!==undefined){P.t=T+y.d;P.w=null}else{P.t=null;P.w=y.ev.filter(c=>c.x).map(c=>({e:c.e,x:c.x,p:y.p,l:ev(c.x,y.p)[0]}))}};
+ const names=Object.keys(S_).filter(n=>!n.includes('.')&&!S_[n].param),hist={};names.forEach(n=>hist[n]=[]);
+ const rec=()=>names.forEach(n=>{const h=hist[n];if(!h.length||h[h.length-1][1]!==S_[n].v)h.push([T,S_[n].v])});
+ const stepT=()=>{for(let it=0;it<500;it++){let ran=false;
+   for(const P of pr){if(P.done)continue;if(P.w){if(hit(P.w)){P.w=null;adv(P);ran=true}}else if(P.t===T){adv(P);ran=true}}
+   settle();if(ran)continue;if(nba.length){const q=nba;nba=[];for(const[l,v,p]of q)wr(l,v,p);settle();continue}break}
+  if(mon){const s=fmt(mon.e,mon.p);if(s!==mon.last){mon.last=s;out.push(`<span>[${T}] ${esc(s)}</span>`)}}};
+ stepT();rec();let end=0;
+ while(!fin){const ts=pr.filter(P=>!P.done&&P.t!=null).map(P=>P.t);if(!ts.length)break;const nt=Math.min(...ts);if(nt>maxT){end=maxT;break}T=nt;stepT();rec()}
+ return{hist,end:Math.max(end,T,1),top,fin}}
+// ---------- Diagrama
+let HS=null,zoom=1;
+function draw(){if(!HS)return;const{hist,end}=HS,names=Object.keys(hist),cv=$('wv'),cs=getComputedStyle(document.documentElement),C=n=>cs.getPropertyValue(n).trim(),
+ rh=34,lw=110,top=24,base=Math.max(3,($('wrap').clientWidth-lw-24)/end),ppu=base*zoom,W=Math.ceil(lw+24+end*ppu),H=top+names.length*rh+6,d=devicePixelRatio||1;
+ cv.width=W*d;cv.height=H*d;cv.style.width=W+'px';cv.style.height=H+'px';const x=cv.getContext('2d');x.scale(d,d);x.font='12px ui-monospace,monospace';x.textBaseline='middle';
+ let st=1;for(const s of [1,2,5,10,20,50,100,200,500,1000,2000,5000,10000]){st=s;if(s*ppu>=55)break}
+ x.strokeStyle=C('--bd');x.fillStyle=C('--fg');x.lineWidth=1;
+ for(let t=0;t<=end;t+=st){const px=lw+t*ppu;x.beginPath();x.moveTo(px,top-4);x.lineTo(px,H);x.stroke();x.fillText(t,px+3,10)}
+ names.forEach((n,i)=>{const y0=top+i*rh,h=hist[n],w=S_[n].w,hi=y0+6,lo=y0+rh-8;x.fillStyle=C('--fg');x.fillText(n+(w>1?`[${w-1}:0]`:''),6,y0+rh/2);
+  x.lineWidth=2;x.strokeStyle=C(w>1?'--bus':'--ok');
+  for(let k=0;k<h.length;k++){const x0=lw+h[k][0]*ppu,x1=lw+(k+1<h.length?h[k+1][0]:end)*ppu,v=h[k][1];
+   if(w===1){const y=v?hi:lo;x.beginPath();if(k)x.moveTo(x0,h[k-1][1]?hi:lo);else x.moveTo(x0,y);x.lineTo(x0,y);x.lineTo(x1,y);x.stroke()}
+   else{const m=y0+rh/2,s=4;x.beginPath();x.moveTo(x0,m);x.lineTo(x0+s,hi);x.lineTo(x1-s,hi);x.lineTo(x1,m);x.lineTo(x1-s,lo);x.lineTo(x0+s,lo);x.closePath();x.stroke();
+    const tx=v.toString(16).toUpperCase();if(x1-x0>tx.length*8+14){x.fillStyle=C('--fg');x.fillText(tx,(x0+x1)/2-tx.length*3.5,m)}}}})}
+// ---------- Acciones
+const log=(h)=>$('con').innerHTML=h;
+$('bc').onclick=()=>{const er=parseAll();log(er.length?er.map(e=>`<span class="e">${esc(e)}</span>`).join('\n')+`\n<span class="e">✘ ${er.length} error(es)</span>`:`<span class="o">✔ Sintaxis correcta (${Object.keys(mods).length} módulo(s): ${Object.keys(mods).join(', ')})</span>`)};
+$('bs').onclick=()=>{const er=parseAll();if(er.length){log(er.map(e=>`<span class="e">${esc(e)}</span>`).join('\n')+'\n<span class="e">✘ Corrige los errores antes de simular</span>');return}
+ try{HS=simulate(+$('tm').value||200);S_=S_;draw();log(out.join('\n')+`\n<span class="o">✔ Simulación terminada en t=${HS.end}${HS.fin?' ($finish)':''}</span>`)}
+ catch(e){if(!e.msg)throw e;log(out.join('\n')+`\n<span class="e">✘ Error de simulación: ${esc(e.msg)}</span>`)}};
+$('z1').onclick=()=>{zoom=Math.max(.25,zoom/1.5);draw()};$('z2').onclick=()=>{zoom=Math.min(40,zoom*1.5);draw()};
+addEventListener('resize',draw);fill();$('bs').click();
+</script></body></html>
